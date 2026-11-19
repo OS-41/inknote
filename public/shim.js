@@ -235,7 +235,7 @@
           el('div', { class: 'note', text: 'キーはこの端末のブラウザにだけ保存し、AIを呼ぶときにサーバーを通して各サービスへ送ります（サーバーには保存しません）。自分のキーを使うと、1日の回数制限はかかりません。' })) : null,
         el('label', { class: 'f' }, el('span', { text: 'モデル（ふだんの処理）' }), el('div', { class: 'row' }, mIn, el('button', { text: '一覧', onclick: e => { e.preventDefault(); loadModels(); } }))),
         el('label', { class: 'f' }, el('span', { text: 'モデル（重い処理：画像の解析・本番テスト・添削など）' }), cIn),
-        el('div', { class: 'note', text: (P.model ? `空欄なら標準のモデル（${P.model}${P.complex && P.complex !== P.model ? ' / ' + P.complex : ''}）を使います。` : 'モデルを選んでください（「一覧」から選べます）。') + '画像を扱う機能（写真の解析・手書きの読み取りなど）には、画像に対応したモデルを選んでください。' + (P.id === 'openrouter' ? '名前が「:free」で終わるモデルは無料です（回数制限あり）。' : '') + (P.noKey ? '画像に対応するのは llama-4-scout と mistral-small です。' : '') }),
+        el('div', { class: 'note', text: (P.model ? `空欄なら標準のモデル（${P.model}${P.complex && P.complex !== P.model ? ' / ' + P.complex : ''}）を使います。` : 'モデルを選んでください（「一覧」から選べます）。') + '画像を扱う機能（写真の解析・手書きの読み取りなど）には、画像に対応したモデルを選んでください。' + (P.id === 'openrouter' || P.id === 'openai-compatible' ? '名前が「:free」で終わるモデルは無料です（回数制限あり）。OpenRouter ではモデルをカンマ区切りで最大5つ書くと、先頭が混雑しているとき次のモデルを自動で使います（例：a/b:free, c/d:free）。' : '') + (P.noKey ? '画像に対応するのは llama-4-scout と mistral-small です。' : '') }),
         msg,
         el('div', { class: 'btns' },
           el('button', { text: '接続テスト', onclick: test }),

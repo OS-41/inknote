@@ -304,7 +304,8 @@ function resolveAI(env, body, req) {
   let key = sp.key, server = true;
   if (userKey && allowUserKeys(env) && !PROVIDERS[id].noKey) { key = userKey; server = false; }
   if (!key) throw new HttpError(400, 'no_key', PROVIDERS[id].noKey ? 'Workers AI が有効になっていません（wrangler.jsonc の "ai" バインディングを確認して、もう一度 deploy してください）' : `${PROVIDERS[id].label} のAPIキーが設定されていません。「AIの設定」で自分のAPIキーを入れてください`);
-  const clean = v => (typeof v === 'string' && /^[\w.:\/@-]{1,120}$/.test(v.trim()) ? v.trim() : '');
+  // モデル名。OpenRouter ではカンマ区切りで複数指定でき、先頭が混雑・停止中なら次のモデルを使う
+  const clean = v => (typeof v === 'string' && /^[\w.:\/@~-]{1,120}(\s*,\s*[\w.:\/@~-]{1,120}){0,4}$/.test(v.trim()) ? v.trim() : '');
   const model = clean(body.model) || sp.model, complex = clean(body.modelComplex) || (clean(body.model) ? clean(body.model) : sp.complex) || model;
   let base = sp.base;
   if (id === 'openai-compatible' && !server && typeof body.baseUrl === 'string' && /^https:\/\/[^\s]+$/.test(body.baseUrl)) base = body.baseUrl.replace(/\/+$/, '');
@@ -338,14 +339,30 @@ async function upstreamError(r, name) {
   if (r.status === 404) throw new HttpError(502, 'ai_model', 'モデルが見つかりません（「AIの設定」で使えるモデルを選び直してください）' + tail);
   throw new HttpError(502, 'ai_error', `AIサービスでエラーが発生しました（${r.status}）` + tail);
 }
+const isOpenRouter = c => c.provider === 'openrouter' || /(^|\/\/)openrouter\.ai\//.test(c.base || '');
 async function callOpenAI(c, prompt, images, model, wantJSON) {
   const content = [{ type: 'text', text: prompt }];
   for (const im of images) content.push({ type: 'image_url', image_url: { url: `data:${im.type};base64,${im.data}` } });
-  const body = { model, messages: [{ role: 'user', content: images.length ? content : prompt }] };
+  const list = String(model).split(',').map(x => x.trim()).filter(Boolean);
+  const body = { model: list[0], messages: [{ role: 'user', content: images.length ? content : prompt }] };
+  // OpenRouter：複数のモデルを指定すると、先頭が混雑・停止中のとき順に次を試す
+  if (isOpenRouter(c) && list.length > 1) body.models = list;
   if (wantJSON && c.provider === 'openai') body.response_format = { type: 'json_object' };
-  const r = await aiFetch((c.base || 'https://api.openai.com/v1') + '/chat/completions', {
-    method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${c.key}` }, body: JSON.stringify(body),
-  });
+  const payload = JSON.stringify(body);
+  let r;
+  // 混雑による一時的な 429 / 503 は、少し待って最大2回まで自動で再試行する
+  for (let attempt = 0; ; attempt++) {
+    r = await aiFetch((c.base || 'https://api.openai.com/v1') + '/chat/completions', {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${c.key}`, ...(isOpenRouter(c) ? { 'x-title': 'InkNote' } : {}) }, body: payload,
+    });
+    if ((r.status === 429 || r.status === 502 || r.status === 503) && attempt < 2) {
+      const txt = await r.clone().text().catch(() => '');
+      if (/per-day|per_day|daily|quota/i.test(txt)) break;   // 1日の上限は待っても戻らない
+      await new Promise(res => setTimeout(res, attempt ? 12000 : 5000));
+      continue;
+    }
+    break;
+  }
   if (!r.ok) await upstreamError(r, c.provider);
   const d = await r.json();
   const m = d.choices && d.choices[0] && d.choices[0].message;
@@ -353,21 +370,53 @@ async function callOpenAI(c, prompt, images, model, wantJSON) {
 }
 async function callWorkersAI(env, c, prompt, images, model) {
   const content = images.length ? [{ type: 'text', text: prompt }, ...images.map(im => ({ type: 'image_url', image_url: { url: `data:${im.type};base64,${im.data}` } }))] : prompt;
+  const first = String(model).split(',')[0].trim();
+  // 長い出力でもタイムアウトしにくいよう、少しずつ受け取る（stream）
   let out;
   try {
-    out = await env.AI.run(model, { messages: [{ role: 'user', content }], max_tokens: Math.min(c.maxTokens, 16000) });
+    out = await env.AI.run(first, { messages: [{ role: 'user', content }], max_tokens: Math.min(c.maxTokens, 8192), stream: true });
+  } catch (e) { throw workersAIError(e, images); }
+  if (!(out instanceof ReadableStream)) return workersAIText(out);
+  const reader = out.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '', text = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += value;
+      let k;
+      while ((k = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, k).trim(); buf = buf.slice(k + 1);
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const j = JSON.parse(data);
+          if (typeof j.response === 'string') text += j.response;
+          else if (j.choices && j.choices[0] && j.choices[0].delta && typeof j.choices[0].delta.content === 'string') text += j.choices[0].delta.content;
+        } catch {}
+      }
+    }
   } catch (e) {
-    const m = String(e && e.message || e);
-    console.log('workers-ai error', m.slice(0, 400));
-    if (/neuron|limit|quota|429|capacity/i.test(m)) throw new HttpError(429, 'rate_limited', 'Workers AI の今日の無料枠を使い切ったか、混み合っています（無料枠は日本時間 9:00 にリセット）\n［workers-ai］' + m.slice(0, 200));
-    if (/not found|no such model|5007|invalid model/i.test(m)) throw new HttpError(502, 'ai_model', 'Workers AI のモデルが見つかりません（「AIの設定」で選び直してください）\n［workers-ai］' + m.slice(0, 200));
-    throw new HttpError(502, 'ai_error', 'Workers AI でエラーが発生しました' + (images.length ? '（画像に対応していないモデルの可能性があります）' : '') + '\n［workers-ai］' + m.slice(0, 200));
+    if (!text) throw workersAIError(e, images);
+    console.log('workers-ai stream cut', String(e && e.message || e).slice(0, 200));
   }
+  return text;
+}
+function workersAIText(out) {
   if (out && typeof out.response === 'string') return out.response;
   if (out && out.response && typeof out.response === 'object') return JSON.stringify(out.response);
   const ch = out && out.choices && out.choices[0];
   if (ch && ch.message) return typeof ch.message.content === 'string' ? ch.message.content : JSON.stringify(ch.message.content);
   return typeof out === 'string' ? out : JSON.stringify(out || '');
+}
+function workersAIError(e, images) {
+  const m = String(e && e.message || e);
+  console.log('workers-ai error', m.slice(0, 400));
+  if (/neuron|quota|daily|limit exceeded|429|capacity/i.test(m)) return new HttpError(429, 'rate_limited', 'Workers AI の今日の無料枠を使い切ったか、混み合っています（無料枠は日本時間 9:00 にリセット）\n［workers-ai］' + m.slice(0, 200));
+  if (/timed? ?out|timeout/i.test(m)) return new HttpError(504, 'ai_timeout', 'Workers AI の処理が時間内に終わりませんでした。画像を小さくする・枚数を減らす・少し待って再試行する、のいずれかをお試しください\n［workers-ai］' + m.slice(0, 200));
+  if (/not found|no such model|5007|invalid model/i.test(m)) return new HttpError(502, 'ai_model', 'Workers AI のモデルが見つかりません（「AIの設定」で選び直してください）\n［workers-ai］' + m.slice(0, 200));
+  return new HttpError(502, 'ai_error', 'Workers AI でエラーが発生しました' + (images.length ? '（画像に対応していないモデルの可能性があります）' : '') + '\n［workers-ai］' + m.slice(0, 200));
 }
 async function callAnthropic(c, prompt, images, model) {
   const content = images.map(im => ({ type: 'image', source: { type: 'base64', media_type: im.type, data: im.data } }));
