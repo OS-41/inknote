@@ -192,3 +192,20 @@ Mac に何も入れなくても、GitHub の Codespaces（ブラウザ上の開�
 3. 変更をコミットしたら `git push` で GitHub にも反映します。
 
 API キーなどのシークレット（`GEMINI_API_KEY` など）は Cloudflare 側に保存されているので、リポジトリには入れません。追加・変更するときは codespace のターミナルで `npx wrangler secret put 名前` を実行します。
+
+---
+
+## GitHub Actions で自動 deploy する
+`main` ブランチに push すると、GitHub Actions（`.github/workflows/deploy.yml`）が自動で `wrangler deploy` を実行します。README や `.devcontainer` だけの変更では実行されません。
+
+### 最初の1回
+リポジトリの「Settings」→「Secrets and variables」→「**Actions**」→「New repository secret」で、次の2つを登録します（Codespaces 用とは別の場所なので、両方に登録が必要です）。
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+### 使い方
+- ふだんは、変更をコミットして `main` に push するだけで公開されます。
+- 手動で実行したいときは、「Actions」タブ →「Deploy to Cloudflare」→「Run workflow」。
+- 結果は「Actions」タブで確認できます（失敗すると GitHub からメールが届きます）。
+- データベースの表を変えたとき（`schema.sql` の変更）は、自動では反映されません。codespace で `npm run db:init` を実行してください。
+
