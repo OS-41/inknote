@@ -31,8 +31,8 @@
         });
       } catch (e) {
         if (e && e.name === 'AbortError') throw e;
-        if (attempt < 1) { await sleep(600); continue; }
-        throw err('unavailable', 'サーバーに接続できません');
+        if (attempt < 1 && !raw && !/\/api\/ai$/.test(path)) { await sleep(600); continue; }   // AI 呼び出しは二重に実行しないよう再試行しない
+        throw err('unavailable', `サーバーに接続できませんでした（${(e && e.message) || 'ネットワークエラー'}）。通信状態を確認して、もう一度お試しください`);
       }
       if (r.status === 401 && relogin && api.me) {
         // セッション切れ → ログインし直してから1回だけやり直す
@@ -44,6 +44,10 @@
     let data = null;
     const ct = r.headers.get('content-type') || '';
     if (ct.includes('application/json')) { try { data = await r.json(); } catch {} }
+    if (r.ok && data && data.error && typeof data.error === 'object') {
+      // AI の応答は途中から返すため、エラーは本文で届く
+      throw err(data.error.code || 'error', data.error.message || 'エラーが発生しました', { status: data.error.status });
+    }
     if (!r.ok) {
       const code = (data && data.code) || (r.status === 429 ? 'rate_limited' : r.status === 401 ? 'unauthenticated' : r.status >= 500 ? 'unavailable' : 'error');
       throw err(code, (data && data.message) || `サーバーエラー（${r.status}）`, { status: r.status });
@@ -291,10 +295,24 @@
       fr.onerror = () => rej(fr.error); fr.readAsDataURL(b);
     });
   }
+  // AI に送る画像は長辺 1600px・JPEG に縮める（送信量と処理時間を減らす。文字の読み取りにはこれで十分）
+  async function shrinkForAI(b) {
+    try {
+      if (!/^image\//.test(b.type) || b.type === 'image/svg+xml' || typeof createImageBitmap !== 'function') return b;
+      const bmp = await createImageBitmap(b);
+      const MAX = 1600, sc = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+      if (sc >= 1 && b.size < 900 * 1024) { bmp.close && bmp.close(); return b; }
+      const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(bmp.width * sc)); c.height = Math.max(1, Math.round(bmp.height * sc));
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close && bmp.close();
+      const out = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.85));
+      return out && out.size < b.size ? out : b;
+    } catch { return b; }
+  }
   async function imagePayload(images) {
     const out = [];
     for (const im of images || []) {
-      if (im instanceof Blob) out.push(await blobToB64(im));
+      if (im instanceof Blob) out.push(await blobToB64(await shrinkForAI(im)));
       else if (typeof im === 'string' && im.startsWith('data:')) out.push({ type: im.slice(5, im.indexOf(';')), data: im.slice(im.indexOf(',') + 1) });
       else if (im && im.data) out.push(im);
     }
