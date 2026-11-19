@@ -415,13 +415,36 @@ async function aiCall(req, env, me) {
   }
 
   const model = tier === 'complex' ? c.complex : c.model;
-  let text;
-  if (c.provider === 'mock') text = await mockAI(prompt, images);
-  else if (c.provider === 'openai' || c.provider === 'openai-compatible' || c.provider === 'openrouter') text = await callOpenAI(c, prompt, images, model, wantJSON);
-  else if (c.provider === 'workers-ai') text = await callWorkersAI(env, c, prompt, images, model);
-  else if (c.provider === 'anthropic') text = await callAnthropic(c, prompt, images, model);
-  else if (c.provider === 'gemini') text = await callGemini(c, prompt, images, model, wantJSON);
-  return json({ text, provider: c.provider, model });
+  const run = async () => {
+    if (c.provider === 'mock') return mockAI(prompt, images, env);
+    if (c.provider === 'openai' || c.provider === 'openai-compatible' || c.provider === 'openrouter') return callOpenAI(c, prompt, images, model, wantJSON);
+    if (c.provider === 'workers-ai') return callWorkersAI(env, c, prompt, images, model);
+    if (c.provider === 'anthropic') return callAnthropic(c, prompt, images, model);
+    if (c.provider === 'gemini') return callGemini(c, prompt, images, model, wantJSON);
+  };
+  // AI の応答には1分以上かかることがある（画像の解析・テスト作成など）。
+  // iPad の Safari などは、データが届かないまま約60秒たつと接続を切ってしまうため、
+  // すぐに応答を始めて、待っている間は空白を少しずつ送り続ける（JSON の前の空白は読み取りに影響しない）。
+  // エラーはこの時点では HTTP の状態コードで返せないので、本文の {"error": {...}} で返す。
+  const { readable, writable } = new TransformStream();
+  const w = writable.getWriter();
+  const send = s => w.write(enc.encode(s)).catch(() => {});
+  send(' ');
+  const keepAlive = setInterval(() => send(' '), 10000);
+  (async () => {
+    try {
+      const text = await run();
+      await send(JSON.stringify({ text, provider: c.provider, model }));
+    } catch (e) {
+      if (!(e instanceof HttpError)) console.log('ai error', e && e.stack || e);
+      const er = e instanceof HttpError ? { status: e.status, code: e.code, message: e.message } : { status: 500, code: 'internal', message: 'サーバー内部でエラーが発生しました' };
+      await send(JSON.stringify({ error: er }));
+    } finally {
+      clearInterval(keepAlive);
+      try { await w.close(); } catch {}
+    }
+  })();
+  return new Response(readable, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-inknote': '1', 'x-accel-buffering': 'no' } });
 }
 // 選んだ AI で使えるモデルの一覧（各サービスの公式 API から取得）
 async function aiModels(req, env) {
@@ -457,7 +480,8 @@ async function aiModels(req, env) {
   return json({ models: ids, defaults: { model: serverProvider(env, c.provider).model, complex: serverProvider(env, c.provider).complex } });
 }
 // テスト用（ALLOW_MOCK=1 のときだけ有効）
-async function mockAI(prompt, images) {
+async function mockAI(prompt, images, env) {
+  if (env && env.MOCK_DELAY_MS) await new Promise(r => setTimeout(r, +env.MOCK_DELAY_MS));
   return JSON.stringify({ title: 'テスト', summary: `モック応答（画像${images.length}枚、${prompt.length}文字）`, points: ['要点1'], components: [{ category: 'キーワード', items: ['テスト'] }] });
 }
 
