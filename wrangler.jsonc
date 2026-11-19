@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "inknote",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // 画面（public/ フォルダ）はそのまま配信。/api と /_blob だけ Worker が処理する
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/_blob/*"]
+  },
+
+  // データベース（手順2で表示される database_id に書き換える）
+  "d1_databases": [
+    { "binding": "DB", "database_name": "inknote", "database_id": "e0a348bf-cbde-4181-84f6-2c7328f1f66b" }
+  ],
+
+  // Cloudflare Workers AI（キー不要の AI）。不要なら この行を消す
+  "ai": { "binding": "AI" },
+
+  // 画像を R2 に置きたい場合だけ、下のコメントを外す（使わなければ画像も D1 に保存されます）
+  // "r2_buckets": [ { "binding": "BLOBS", "bucket_name": "inknote-images" } ],
+
+  // 公開してよい設定値（APIキーや招待コードは書かない → wrangler secret put で設定）
+  "vars": {
+    "SITE_NAME": "",
+    // 各AIの標準モデル（空欄なら組み込みの既定値。利用者は「AIの設定」で変更できる）
+    "GEMINI_MODEL": "",
+    "GEMINI_MODEL_COMPLEX": "",
+    "OPENAI_MODEL": "",
+    "OPENAI_MODEL_COMPLEX": "",
+    "ANTHROPIC_MODEL": "",
+    "ANTHROPIC_MODEL_COMPLEX": "",
+    "OPENROUTER_MODEL": "",
+    "OPENROUTER_MODEL_COMPLEX": "",
+    "WORKERS_AI_MODEL": "",
+    "WORKERS_AI_MODEL_COMPLEX": "",
+    "OPENAI_COMPAT_BASE_URL": "",
+    "OPENAI_COMPAT_MODEL": "",
+    "ALLOW_USER_KEYS": "true",
+    "AI_IMAGES": "true",
+    "AI_DAILY_LIMIT": "200",
+    "MAX_STORAGE_MB_PER_USER": "300",
+    "PBKDF2_ITERATIONS": "20000"
+  },
+  "observability": { "enabled": true }
+}

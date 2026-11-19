@@ -1,0 +1,14 @@
+{
+  "name": "inknote",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:init": "wrangler d1 execute inknote --remote --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute inknote --local --file=./schema.sql",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

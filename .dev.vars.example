@@ -1,0 +1,8 @@
+# ローカル開発用（wrangler dev）。本番では wrangler secret put を使う
+# サーバーで用意するAIのキー（使うものだけ）
+GEMINI_API_KEY=
+# OPENAI_API_KEY=
+# ANTHROPIC_API_KEY=
+# OPENAI_COMPAT_API_KEY=
+# INVITE_CODE=好きな合言葉
+# PARALLEL_API_KEY=

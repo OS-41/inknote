@@ -1,0 +1,9 @@
+{
+  "name": "inknote",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postCreateCommand": "npm install",
+  "secrets": {
+    "CLOUDFLARE_API_TOKEN": { "description": "Cloudflare の API トークン（テンプレート「Edit Cloudflare Workers」で作成）" },
+    "CLOUDFLARE_ACCOUNT_ID": { "description": "Cloudflare のアカウント ID（ダッシュボードの Workers & Pages 画面の右側に表示）" }
+  }
+}
