@@ -321,8 +321,16 @@ async function upstreamError(r, name) {
   let detail = ''; try { detail = (await r.text()).slice(0, 2000); } catch {}
   // 各サービスが返す理由（英語）を取り出して画面にも表示する。キーらしき文字列は伏せる
   let reason = '';
-  try { const d = JSON.parse(detail); const e = d.error || d; reason = [e.status || e.type || '', e.message || ''].filter(Boolean).join(': '); } catch { reason = detail.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
-  reason = reason.replace(/AIza[0-9A-Za-z_\-]{20,}|sk-[0-9A-Za-z_\-]{16,}|sk-ant-[0-9A-Za-z_\-]{16,}/g, '***').slice(0, 300);
+  try {
+    const d = JSON.parse(detail); const e = d.error || d;
+    reason = [e.status || e.type || '', e.message || ''].filter(Boolean).join(': ');
+    // OpenRouter は実際の提供元のエラーを metadata に入れて返す（"Provider returned error" の中身）
+    const md = e.metadata || {};
+    if (md.provider_name) reason += ` ／提供元: ${md.provider_name}`;
+    if (md.raw) { let raw = md.raw; try { const r = typeof raw === 'string' ? JSON.parse(raw) : raw; raw = (r.error && (r.error.message || r.error)) || r.message || r; } catch {} reason += ` ／詳細: ${typeof raw === 'string' ? raw : JSON.stringify(raw)}`; }
+    if (Array.isArray(md.reasons)) reason += ` ／理由: ${md.reasons.join(', ')}`;
+  } catch { reason = detail.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
+  reason = reason.replace(/AIza[0-9A-Za-z_\-]{20,}|sk-[0-9A-Za-z_\-]{16,}|sk-ant-[0-9A-Za-z_\-]{16,}/g, '***').slice(0, 500);
   console.log(`${name} error ${r.status}: ${detail.slice(0, 400)}`);
   const tail = reason ? `\n［${name} の応答 ${r.status}］${reason}` : '';
   if (r.status === 429) throw new HttpError(429, 'rate_limited', 'AIサービスの利用上限に達したか、混み合っています。少し待ってから再試行してください' + tail);
@@ -338,7 +346,7 @@ async function callOpenAI(c, prompt, images, model, wantJSON) {
   const r = await aiFetch((c.base || 'https://api.openai.com/v1') + '/chat/completions', {
     method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${c.key}` }, body: JSON.stringify(body),
   });
-  if (!r.ok) await upstreamError(r, 'openai');
+  if (!r.ok) await upstreamError(r, c.provider);
   const d = await r.json();
   const m = d.choices && d.choices[0] && d.choices[0].message;
   return (m && (typeof m.content === 'string' ? m.content : (m.content || []).map(p => p.text || '').join(''))) || '';
