@@ -2885,6 +2885,7 @@ async function genQuiz(n, mat) {
 {"items":[{"question":"問題文","answer":"答え","choices":["選択肢1","選択肢2","選択肢3","選択肢4"],"explanation":"解説","from":"text|ink|src"}]}
 ルール:
 - 重要な用語・定義・人物・出来事・数値・公式・因果関係などを、素材全体からまんべんなく選ぶ。似た問題を重ねない。
+${NUM_RULE.replace('出題する', '問いにする')}
 - 素材に書かれていることだけから出題し、答えが一意に定まるようにする。question に答えやそのヒントになる言い換えを含めない。
 - answer は短い語句（1語〜20字程度）。
 - choices はちょうど4つ。1つは answer と完全に同じ文字列、残り3つは同じ種類のもっともらしい誤り。
@@ -3095,12 +3096,15 @@ function calcInput(q, set) {
   ta.oninput = () => { st.work = ta.value; set({ ...st }); };
   return h('div', null, h('div', { class: 'row', style: 'flex-wrap:nowrap;gap:6px;align-items:center' }, inp, q.unit ? h('span', { class: 'calc-unit', text: q.unit }) : null), ta);
 }
-const CALC_SCHEMA = `{"type":"calc","points":配点,"question":"問題文（必要な数値・条件をすべて書く。答える形〈小数第何位まで・分数で・単位〉も指定する）","answer":"正答（表示用。例: 2.5、\\\\frac{3}{4}、2\\\\sqrt{3}）","calc":"正答を求める計算式（数値と + - * / ^ ( ) sqrt() pi だけを使う。例: (3.0*10^8)/(2*1.5)）","value":正答の数値,"unit":"答えの単位（なければ空）","tol":許容する相対誤差（丸めを許すとき 0.01、厳密なら 0.0001）,"steps":"解き方（途中式の流れ）","rubric":"途中式の部分点の基準（例：式が立てられていれば半分）","keyword":"使う公式・法則・用語（1語）","explanation":"解説（1〜2文）"}`;
+const CALC_SCHEMA = `{"type":"calc","points":配点,"question":"問題文（必要な数値・条件をすべて書く。答える形〈小数第何位まで・分数で・単位〉も指定する。使う式・公式・法則名は書かない）","answer":"正答（表示用。例: 2.5、\\\\frac{3}{4}、2\\\\sqrt{3}）","calc":"正答を求める計算式（数値と + - * / ^ ( ) sqrt() pi だけを使う。例: (3.0*10^8)/(2*1.5)）","value":正答の数値,"unit":"答えの単位（なければ空）","tol":許容する相対誤差（丸めを許すとき 0.01、厳密なら 0.0001）,"steps":"解き方（途中式の流れ）","rubric":"途中式の部分点の基準（例：式が立てられていれば半分）","keyword":"使う公式・法則・用語（1語）","explanation":"解説（1〜2文）"}`;
 function calcRule(level) {
   if (level === 'none') return '- 計算問題（calc）は出題しない。';
   const amt = level === 'more' ? '全体の3〜5割' : '学習内容に公式・法則・数量関係・計算手順がある場合は全体の1〜3割（なければ出題しない）';
-  return `- 計算問題（calc）：${amt}。学習内容の公式・法則・数量関係を使い、学習内容とは別の具体的な数値で計算させる問題も作ってよい。答えは数値で一意に決まるようにし、calc に正答を求める式、value にその数値を必ず入れる。計算の量は手計算で数分以内。`;
+  return `- 計算問題（calc）：${amt}。学習内容の公式・法則・数量関係を使い、学習内容とは別の具体的な数値で計算させる問題も作ってよい。答えは数値で一意に決まるようにし、calc に正答を求める式、value にその数値を必ず入れる。計算の量は手計算で数分以内。
+- 計算問題では、解くのに使う式・公式・法則（例：「$v=f\\lambda$ を用いて」「オームの法則より」「〜の公式に代入して」）を問題文・題材（lead・passage）・図表に書かない。どの式を使うかを判断することも問う内容に含める。必要な数値・条件と答える形だけを示す（式は steps と explanation にだけ書く）。`;
 }
+// 理系以外の教科では、重要な数値そのものを問う
+const NUM_RULE = '- 学習内容が理系以外の教科（歴史・地理・公民・政治経済・国語・英語・情報の一部など）のときは、重要な数値（年号・年代・統計値・割合・人数・面積・期間・条数など）の一部を、その数値だけを答えさせる問い（短答または4択。4択の誤りの選択肢は近い数値）として出題する。計算はさせず、学習内容に書かれた数値をそのまま答えにする。重要でない細かい数値は問わない。';
 
 const EXAM_MIN_CHARS = 600;
 function examScopeText(useSrc) {
@@ -3133,6 +3137,7 @@ async function createExam(opt) {
 - 問題数は ${opt.count} 問。配点の合計は 100 点。
 - 形式の目安：4択(mc) 約4割、正誤(tf) 約2割、短答(short) 約2.5割、記述(essay) 約1.5割（計算問題を入れるときはその分ほかを減らす）。
 ${calcRule(opt.calc)}
+${NUM_RULE}
 - 難易度：${lv}。
 - 学習内容に書かれていることだけから出題し、答えが一意に定まるようにする。問題文に答えを含めない。
 - 問題は学習内容の全体からまんべんなく、似た問題を重ねない。
@@ -3158,7 +3163,7 @@ ${text.slice(0, 60000)}
   if (!qs.length) { toast('試験問題を作成できませんでした'); return; }
   const tot = qs.reduce((a, q) => a + q.points, 0);
   if (tot !== 100) { let acc = 0; qs.forEach((q, i) => { q.points = i === qs.length - 1 ? 100 - acc : Math.max(1, Math.round((q.points || 1) / (tot || qs.length) * 100)); acc += q.points; }); }
-  runExam({ id: uid('e'), title: ex.title || '本番テスト', limitMin: opt.min, questions: qs, answers: {} });
+  runExam({ id: uid('e'), title: ex.title || '本番テスト', limitMin: opt.timed ? opt.min : 0, questions: qs, answers: {} });
 }
 /* ---- 試験の画面：左に問題冊子、右に解答用紙 ---- */
 const SYMS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'.split('');   // 空欄の［ア］［イ］と区別するため丸数字
@@ -3243,7 +3248,8 @@ function runExam(ex) {
   const subBtn = h('button', { class: 'btn pri', text: '提出', onclick: () => submit(false) });
   ov.right.append(timer, subBtn);
   const tick = () => {
-    const left = limit - Math.floor((Date.now() - start) / 1000);
+    const el = Math.floor((Date.now() - start) / 1000), left = limit - el;
+    if (!limit) { timer.textContent = `経過 ${Math.floor(el / 60)}:${String(el % 60).padStart(2, '0')}`; return; }   // 制限時間なし
     timer.textContent = `残り ${Math.floor(Math.max(0, left) / 60)}:${String(Math.max(0, left) % 60).padStart(2, '0')}`;
     timer.classList.toggle('warn', left <= 60);
     if (left <= 0 && !examSubmitted) { toast('時間になりました。自動で提出します'); submit(true); }
@@ -3269,7 +3275,7 @@ function runExam(ex) {
   }
   async function doSubmit() {
     examSubmitted = true; clearInterval(tm); subBtn.disabled = true;
-    ex.usedSec = Math.min(limit, Math.round((Date.now() - start) / 1000));
+    ex.usedSec = limit ? Math.min(limit, Math.round((Date.now() - start) / 1000)) : Math.round((Date.now() - start) / 1000);
     ex.results = {};
     const toAI = [];
     for (const q of ex.questions) {
@@ -3305,7 +3311,7 @@ ${toAI.map(q => `[${q.id}] 形式:${q.type} 配点:${q.points}\n問題: ${q.ques
 function showExamResult(ex) {
   const ov = overlay(ex.title + '（結果）');
   const used = ex.usedSec || 0;
-  ov.right.append(h('span', { class: 'cm', text: `${fmtDate(ex.at)} · 所要 ${Math.floor(used / 60)}分${used % 60}秒 / 制限 ${ex.limitMin}分` }));
+  ov.right.append(h('span', { class: 'cm', text: `${fmtDate(ex.at)} · 所要 ${Math.floor(used / 60)}分${used % 60}秒 / ${ex.limitMin ? `制限 ${ex.limitMin}分` : '制限時間なし'}` }));
   const wrap = h('div', { class: 'exam' }, h('div', { class: 'qz-score', text: `${ex.score} / 100 点` }), examMissedBox(ex));
   ex.questions.forEach((q, i) => {
     const r = ex.results[q.id] || { score: 0 }, a = ex.answers[q.id] || '';
@@ -3456,7 +3462,7 @@ async function createPartExam(opt) {
 passage の書き方：style に合わせて書く。空欄は［ア］［イ］…、下線部は【①語句】【②語句】…の形で書く。空欄にした語は passage に残さない。
 figure（任意。内容の理解や読み取り問題に役立つときだけ）：{"kind":"chart","title":"…","caption":"…","chart":Chart.js v4 の設定（関数は書かない）} / {"kind":"table","title":"…","table":{"columns":[…],"rows":[[…]]}} / {"kind":"diagram","title":"…","diagram":"Mermaid 記法"}。学習内容にない数値を使うときは caption に「例示」と書く。
 小問：{"id":"P1-1","ask":"blank|underline|related|figure|general|calc","format":"bank|mc|tf|short|essay|calc","points":配点,"question":"問題文","choices":["mc のときだけ4つ"],"answer":"bank：語群の語 / mc：正しい選択肢の文字列 / tf：○ か × / short：正答 / essay：模範解答","accept":["short のときだけ：別解"],"fix":{"wrong":"tf が×のとき：問題文中の誤っている語句（そのまま）","right":"正しい語句"},"rubric":"essay のときだけ：採点基準","maxChars":essay のときだけ字数の目安,"figure":この小問だけで使う図表（任意）,"keyword":"この小問で問うている重要語句（1語）","explanation":"解説（1〜2文）"}
-計算の小問（format が calc のとき）は次の項目も付ける："answer":"正答（表示用）","calc":"正答を求める計算式（数値と + - * / ^ ( ) sqrt() pi だけ）","value":正答の数値,"unit":"答えの単位","tol":許容する相対誤差,"steps":"解き方（途中式の流れ）","rubric":"途中式の部分点の基準"。問題文に必要な数値・条件と、答える形（小数第何位まで・分数で・単位）を書く。passage や図表の数値を使った計算（ask: calc）にしてもよい。
+計算の小問（format が calc のとき）は次の項目も付ける："answer":"正答（表示用）","calc":"正答を求める計算式（数値と + - * / ^ ( ) sqrt() pi だけ）","value":正答の数値,"unit":"答えの単位","tol":許容する相対誤差,"steps":"解き方（途中式の流れ）","rubric":"途中式の部分点の基準"。問題文に必要な数値・条件と、答える形（小数第何位まで・分数で・単位）を書き、使う式・公式・法則名は書かない。passage や図表の数値を使った計算（ask: calc）にしてもよい。
 ${VARIETY_RULE}
 大問が2つ以上あるときは2種類以上の style を使い、少なくとも1つの大問は figure（グラフ・表・図）を含める（data の大問か、他の形式に figure を添える）。小問ごとの figure で別の資料を示してもよい。
 大問の並び：番号が大きい大問ほど難しく、題材も長くする（第1問は短めで基本的、最後の大問は題材が長く、読み取りや複数の知識の組み合わせを要する）。ただし第1問と最後の大問の難しさの差は1段階程度にとどめ、離れすぎないようにする。
@@ -3466,6 +3472,7 @@ ${relText ? relRule(opt, false) : ''}
 - 問い方に変化をつける：空欄補充（blank）、下線部の語に関連する事柄（underline）、関連知識（related）、図表の読み取り（figure。大問か小問に図表があるとき）、全体の理解（general）。
 - 解答形式も混ぜる：語群選択（bank。wordBank は正解とまぎらわしい語を含めて6〜10語）、4択（mc）、正誤（tf。×が正解の問題の一部では fix を付けて訂正も求める）、記述・語句（short）、記述・文章（essay。各大問0〜1問、maxChars は 40〜200）。
 ${calcRule(opt.calc).replace('全体の', 'テスト全体の小問の')}
+${NUM_RULE}
 - 問題文で空欄・下線部を指すときは「空欄［ア］」「下線部①」のように書く。
 - 数式は $…$（LaTeX）で書く（passage・問題文・選択肢・解説とも）。
 - 配点の合計は 100 点。
@@ -3491,7 +3498,7 @@ ${scope}`, { images: imgs.length ? imgs : undefined, tier: 'complex', label: '�
   if (!parts.length) { toast('試験問題を作成できませんでした。もう一度お試しください'); return; }
   const all = parts.flatMap(p => p.questions), tot = all.reduce((a, q) => a + q.points, 0);
   if (tot !== 100) { let acc = 0; all.forEach((q, i) => { q.points = i === all.length - 1 ? 100 - acc : Math.max(1, Math.round((q.points || 1) / (tot || all.length) * 100)); acc += q.points; }); }
-  runPartExam({ id: uid('e'), format: 'parts', title: ex.title || '本番テスト', limitMin: opt.min, parts, answers: {} });
+  runPartExam({ id: uid('e'), format: 'parts', title: ex.title || '本番テスト', limitMin: opt.timed ? opt.min : 0, parts, answers: {} });
 }
 function qLabel(p, qi) { return `問${qi + 1}`; }
 function answerInput(q, part, ex) {
@@ -3535,7 +3542,8 @@ function runPartExam(ex) {
   const subBtn = h('button', { class: 'btn pri', text: '提出', onclick: () => submit(false) });
   ov.right.append(timer, subBtn);
   const tick = () => {
-    const left = limit - Math.floor((Date.now() - start) / 1000);
+    const el = Math.floor((Date.now() - start) / 1000), left = limit - el;
+    if (!limit) { timer.textContent = `経過 ${Math.floor(el / 60)}:${String(el % 60).padStart(2, '0')}`; return; }   // 制限時間なし
     timer.textContent = `残り ${Math.floor(Math.max(0, left) / 60)}:${String(Math.max(0, left) % 60).padStart(2, '0')}`;
     timer.classList.toggle('warn', left <= 60);
     if (left <= 0 && !submitted) { toast('時間になりました。自動で提出します'); submit(true); }
@@ -3563,7 +3571,7 @@ function runPartExam(ex) {
   }
   async function grade() {
     submitted = true; clearInterval(tm); subBtn.disabled = true;
-    ex.usedSec = Math.min(limit, Math.round((Date.now() - start) / 1000));
+    ex.usedSec = limit ? Math.min(limit, Math.round((Date.now() - start) / 1000)) : Math.round((Date.now() - start) / 1000);
     ex.results = {}; const toAI = [];
     for (const q of allQ()) {
       const a = ex.answers[q.id];
@@ -3611,7 +3619,7 @@ function fmtAns(q, a) {
 function showPartResult(ex) {
   const ov = overlay(ex.title + '（結果）');
   const used = ex.usedSec || 0;
-  ov.right.append(h('span', { class: 'cm', text: `${fmtDate(ex.at)} · 所要 ${Math.floor(used / 60)}分${used % 60}秒 / 制限 ${ex.limitMin}分` }));
+  ov.right.append(h('span', { class: 'cm', text: `${fmtDate(ex.at)} · 所要 ${Math.floor(used / 60)}分${used % 60}秒 / ${ex.limitMin ? `制限 ${ex.limitMin}分` : '制限時間なし'}` }));
   const wrap = h('div', { class: 'exam' }, h('div', { class: 'qz-score', text: `${ex.score} / 100 点` }));
   // 大問ごとの得点
   wrap.append(examMissedBox(ex) || '', h('div', { class: 'psum' }, ex.parts.map((p, pi) => { const g = p.questions.reduce((a, q) => a + ((ex.results[q.id] || {}).score || 0), 0), t = p.questions.reduce((a, q) => a + q.points, 0); return h('span', { class: 'chip', text: `第${pi + 1}問 ${g}/${t}` }); })));
@@ -3729,7 +3737,7 @@ function examMissedBox(ex) {
   return h('div', { class: 'card', style: 'max-width:760px;margin:0 auto 18px' }, h('div', { class: 'ct', text: `この回で間違えた語句（${ws.length}）` }), h('div', { class: 'chips' }, [...new Set(ws)].map(w => h('span', { class: 'chip', text: w }))));
 }
 
-let examOpt = { fmt: 'parts', per: 1, qn: 4, min: 30, count: 15, level: 'std', calc: 'auto', src: false, ink: true, focus: true, rel: true, cross: false };
+let examOpt = { fmt: 'parts', per: 1, qn: 4, timed: true, min: 30, count: 15, level: 'std', calc: 'auto', src: false, ink: true, focus: true, rel: true, cross: false };
 function segPick(list, cur, on) { return h('div', { class: 'seg', style: 'flex-wrap:wrap' }, list.map(([k, lab]) => h('button', { class: 'tb' + (cur === k ? ' on' : ''), text: lab, onclick: () => on(k) }))); }
 function renderStudyTab(body) {
   const items = maskItems();
@@ -3764,7 +3772,8 @@ function renderStudyTab(body) {
   // 本番テスト
   const len = examScopeText(examOpt.src).replace(/\s/g, '').length;
   body.append(h('div', { class: 'sec', text: '本番テスト' }));
-  const minIn = h('input', { type: 'number', min: 1, max: 300, value: examOpt.min, style: 'width:90px' });
+  const minIn = h('input', { type: 'number', min: 1, max: 300, value: examOpt.min, style: 'width:90px', disabled: !examOpt.timed });
+  const cTimed = h('input', { type: 'checkbox', checked: examOpt.timed }); cTimed.onchange = () => { examOpt.timed = cTimed.checked; minIn.disabled = !cTimed.checked; };
   minIn.oninput = () => { examOpt.min = Math.max(1, Math.min(300, parseInt(minIn.value) || 30)); };
   const cSrc = h('input', { type: 'checkbox', checked: examOpt.src, disabled: !checkedSrcs().length }); cSrc.onchange = () => { examOpt.src = cSrc.checked; renderPanel(); };
   const cFoc = h('input', { type: 'checkbox', checked: examOpt.focus, disabled: !items.length }); cFoc.onchange = () => { examOpt.focus = cFoc.checked; };
@@ -3776,7 +3785,7 @@ function renderStudyTab(body) {
   const cCross = h('input', { type: 'checkbox', checked: examOpt.cross && nHead >= 2, disabled: nHead < 2 }); cCross.onchange = () => { examOpt.cross = cCross.checked; };
   body.append(
     h('div', { class: 'cm', style: 'margin-bottom:8px', text: `学習内容 ${len.toLocaleString()} 字` + (examOpt.ink && nInk2 && imgAI ? ` ＋ 手書き ${nInk2} 画` : '') + (!examReady(examOpt) ? `（${EXAM_MIN_CHARS}字以上、または手書き${INK_EXAM_MIN}画以上で作成できます）` : '') }),
-    h('div', { class: 'row' }, h('span', { class: 'cm', text: '制限時間' }), minIn, h('span', { class: 'cm', text: '分' })),
+    h('div', { class: 'row' }, h('label', { class: 'cm', style: 'display:flex;align-items:center;gap:4px' }, cTimed, '制限時間を設定する'), minIn, h('span', { class: 'cm', text: '分' })),
     h('div', { class: 'cm', style: 'margin-top:8px', text: '形式' }), segPick([['parts', '大問形式'], ['flat', '小問集合']], examOpt.fmt, k => { examOpt.fmt = k; renderPanel(); }),
     examOpt.fmt === 'parts' ? h('div', null,
       h('div', { class: 'cm', style: 'margin-top:8px', text: (() => { const n = noteSections().filter(x => x.heading).length; return n ? `大問の区切り（本文の見出し ${n} 個）` : '大問の区切り（見出しがないため、内容のまとまりで自動的に分けます）'; })() }),
@@ -3793,7 +3802,7 @@ function renderStudyTab(body) {
     body.append(h('div', { class: 'sec', text: `テスト履歴（${study.exams.length}回）` }));
     const list = h('div');
     const show = n => { list.textContent = ''; for (const ex of study.exams.slice(0, n)) list.append(h('div', { class: 'card row', style: 'justify-content:space-between;flex-wrap:nowrap' },
-      h('div', { style: 'min-width:0' }, h('div', { class: 'ct', text: ex.title }), h('div', { class: 'cm', text: `${fmtDate(ex.at)} · ${ex.format === 'parts' ? `大問${(ex.parts || []).length}・` : ''}${examQCount(ex)}問 · 制限${ex.limitMin}分${ex.pending ? ' · 未採点あり' : ''}` }),
+      h('div', { style: 'min-width:0' }, h('div', { class: 'ct', text: ex.title }), h('div', { class: 'cm', text: `${fmtDate(ex.at)} · ${ex.format === 'parts' ? `大問${(ex.parts || []).length}・` : ''}${examQCount(ex)}問 · ${ex.limitMin ? `制限${ex.limitMin}分` : '制限時間なし'}${ex.pending ? ' · 未採点あり' : ''}` }),
         (ex.words || []).some(x => !x.ok) ? h('div', { class: 'cm', style: 'margin-top:2px', text: '× ' + [...new Set(ex.words.filter(x => !x.ok).map(x => x.w))].slice(0, 6).join('・') }) : null),
       h('div', { class: 'row', style: 'flex-wrap:nowrap' }, h('b', { style: 'font-size:18px;white-space:nowrap', text: ex.score + '点' }), h('button', { class: 'bb', text: '見直す', onclick: () => openExamResult(ex) }))));
       if (study.exams.length > n) list.append(h('button', { class: 'bb', style: 'width:100%', text: `さらに表示（残り ${study.exams.length - n} 回）`, onclick: () => show(n + 10) }));
@@ -4385,12 +4394,19 @@ function runFolder(s, run, idx) {
     if (!sel.length) { toast('領域を選択してください'); return; }
     addToBody(sel.flatMap(regionNodes), `${sel.length}件の領域`);
   } });
+  // 全体の解析画像の表示・非表示（解析ごとに保存）
+  pic.style.display = run.hideImg ? 'none' : '';
+  const picBtn = h('button', { class: 'bb', text: run.hideImg ? '🖼 全体画像を表示' : '🖼 全体画像を隠す', onclick: () => {
+    run.hideImg = !run.hideImg; pic.style.display = run.hideImg ? 'none' : '';
+    picBtn.textContent = run.hideImg ? '🖼 全体画像を表示' : '🖼 全体画像を隠す'; saveSrc(s);
+  } });
+  const picBar = h('div', { class: 'row', style: 'margin:0 0 6px' }, picBtn);
   const sumAn = renderAnalysis({ summary: run.summary, points: run.points });
   const compAn = renderAnalysis({ components: run.components });
   const k = run.id;
   return fold('f:' + k, head,
     h('div', { class: 'fbody' },
-      pic,
+      picBar, pic,
       fold('t:' + k, '📄 文字起こし（全文）',
         h('div', { class: 'srcText', text: run.fullText || '（文字は見つかりませんでした）' }),
         h('div', { class: 'row', style: 'margin-top:6px' },
